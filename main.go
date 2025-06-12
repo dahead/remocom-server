@@ -35,7 +35,7 @@ func parseHostPort(arg string) (string, int, error) {
 }
 
 func startServer(host string, port int, accessHashcode string) {
-	chatServer, err := server.NewServer(port, func(msg *common.ChatMessage, addr *net.UDPAddr) {
+	chatServer, err := server.NewServer(host, port, func(msg *common.ChatMessage, addr *net.UDPAddr) {
 		fmt.Printf("[%s] %s: %s\n", msg.Timestamp.Format("15:04:05"), msg.Username, msg.Content)
 	}, accessHashcode)
 	if err != nil {
@@ -43,7 +43,7 @@ func startServer(host string, port int, accessHashcode string) {
 		return
 	}
 
-	fmt.Printf("Server running on %s:%d\n", host, port)
+	// fmt.Printf("Server running on %s:%d\n", host, port)
 	chatServer.Start()
 	defer chatServer.Stop()
 
@@ -53,26 +53,19 @@ func startServer(host string, port int, accessHashcode string) {
 func startClient(host string, port int) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Bitte geben Sie Ihren Benutzernamen ein: ")
-	username, err := reader.ReadString('\n')
+	username, err := readNonEmptyString(reader, "Bitte geben Sie Ihren Benutzernamen ein: ")
 	if err != nil {
-		fmt.Printf("Fehler beim Lesen des Benutzernamens: %v\n", err)
-		return
-	}
-	username = strings.TrimSpace(username)
-	if username == "" {
-		fmt.Println("Benutzername darf nicht leer sein")
+		fmt.Printf("%v\n", err)
 		return
 	}
 
-	fmt.Print("Bitte geben Sie den Zugangscode ein: ")
-	accessCode, err := reader.ReadString('\n')
+	accessCode, err := readNonEmptyString(reader, "Bitte geben Sie den Zugangscode ein: ")
 	if err != nil {
-		fmt.Printf("Fehler beim Lesen des Zugangscodes: %v\n", err)
+		fmt.Printf("%v\n", err)
 		return
 	}
-	accessCode = strings.TrimSpace(accessCode)
 
+	// Create new chat client
 	chatClient, err := client.NewClient(host, port, username)
 	if err != nil {
 		fmt.Printf("Fehler beim Starten des Clients: %v\n", err)
@@ -94,10 +87,10 @@ func startClient(host string, port int) {
 		return
 	}
 
+	// Start the chat
 	chatClient.Start()
 
-	// Todo: when hash access check failed, quit.
-	// Or is it better to not know a failed connection?
+	// Todo: we dont know if we successfully connected here or not.
 
 	fmt.Println("Client gestartet. Geben Sie Nachrichten ein (exit zum Beenden):")
 
@@ -117,6 +110,22 @@ func startClient(host string, port int) {
 				fmt.Printf("Fehler beim Senden der Nachricht: %v\n", err)
 			}
 		}
+	}
+}
+
+func readNonEmptyString(reader *bufio.Reader, prompt string) (string, error) {
+	for {
+		fmt.Print(prompt)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return "", fmt.Errorf("Fehler beim Lesen der Eingabe: %w", err)
+		}
+		input = strings.TrimSpace(input)
+		if input == "" {
+			fmt.Println("Eingabe darf nicht leer sein. Bitte erneut versuchen.")
+			continue
+		}
+		return input, nil
 	}
 }
 

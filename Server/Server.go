@@ -26,8 +26,8 @@ type Server struct {
 	AccessCode    string
 }
 
-func NewServer(port int, handler MessageHandler, accessCode string) (*Server, error) {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+func NewServer(host string, port int, handler MessageHandler, accessCode string) (*Server, error) {
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve address: %v", err)
 	}
@@ -55,8 +55,7 @@ func (s *Server) Start() {
 	}
 
 	s.Running = true
-	fmt.Printf("Chat server started on: %v\n", s.Addr)
-	fmt.Printf("Access code: %v\n", s.AccessCode)
+	fmt.Printf("Chat server started on: %v. Access code: %s\n", s.Addr, s.AccessCode)
 
 	go func() {
 		for s.Running {
@@ -75,11 +74,9 @@ func (s *Server) Start() {
 
 			// Check passcode validity if message content contains passcode (in this example protocol)
 			if msg.Type == common.TypeAuth {
-
-				fmt.Printf("Auth message received: %s: %s", clientAddr.String(), msg.Content)
-
+				/// fmt.Printf("Auth message received: %s: %s\n", clientAddr.String(), msg.Content)
 				if msg.Content != s.AccessCode {
-					fmt.Printf("Client %s failed passcode validation\n", clientAddr.String())
+					// fmt.Printf("Client %s failed passcode validation\n", clientAddr.String())
 					continue
 				}
 
@@ -90,6 +87,9 @@ func (s *Server) Start() {
 					LastActivity: time.Now(),
 				}
 				fmt.Printf("Client %s successfully authenticated\n", clientAddr.String())
+
+				// Todo: Send AuthSuccess Message to client
+
 				continue
 
 			}
@@ -113,7 +113,7 @@ func (s *Server) Start() {
 				// Check if client is known and authorized
 				client, exists := s.clients[clientAddr.String()]
 				if !exists {
-					fmt.Printf("Unauthorized client %v tried to send chat message\n", clientAddr)
+					// fmt.Printf("Unauthorized client %v tried to send chat message\n", clientAddr)
 					continue
 				}
 				if s.Handler != nil {
