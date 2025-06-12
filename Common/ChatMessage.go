@@ -10,6 +10,7 @@ import (
 type MessageType string
 
 const (
+	TypeAuth  MessageType = "auth"
 	TypeChat  MessageType = "chat"
 	TypePing  MessageType = "ping"
 	TypeAlive MessageType = "alive"
@@ -23,6 +24,16 @@ type ChatMessage struct {
 	Type      MessageType `json:"type"`
 }
 
+func NewAuthenticateMessage(username, accessCode string) *ChatMessage {
+	return &ChatMessage{
+		MessageID: generateUniqueID(),
+		Timestamp: time.Now(),
+		Username:  username,
+		Content:   accessCode,
+		Type:      TypeAuth,
+	}
+}
+
 func NewChatMessage(username, content string) *ChatMessage {
 	return &ChatMessage{
 		MessageID: generateUniqueID(),
@@ -33,7 +44,6 @@ func NewChatMessage(username, content string) *ChatMessage {
 	}
 }
 
-// Add helper functions for ping/alive messages
 func NewPingMessage() *ChatMessage {
 	return &ChatMessage{
 		MessageID: generateUniqueID(),

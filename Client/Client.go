@@ -46,7 +46,6 @@ func (c *Client) SendMessage(content string) error {
 }
 
 func (c *Client) Start() {
-	// Start a goroutine to listen for messages from the server
 	go func() {
 		buffer := make([]byte, 4096)
 		for {
@@ -62,10 +61,8 @@ func (c *Client) Start() {
 				continue
 			}
 
-			// Handle different message types
 			switch msg.Type {
 			case common.TypePing:
-				// Respond with alive message
 				aliveMsg := common.NewAliveMessage(c.Username)
 				jsonData, err := aliveMsg.ToJSON()
 				if err != nil {
@@ -78,7 +75,6 @@ func (c *Client) Start() {
 					fmt.Printf("Error sending alive response: %v\n", err)
 				}
 			case common.TypeChat:
-				// Display chat message
 				fmt.Printf("[%s] %s: %s\n", msg.Timestamp.Format("15:04:05"), msg.Username, msg.Content)
 			}
 		}

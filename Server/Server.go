@@ -23,9 +23,10 @@ type Server struct {
 	clients       map[string]*Client
 	pingInterval  time.Duration
 	clientTimeout time.Duration
+	AccessCode    string
 }
 
-func NewServer(port int, handler MessageHandler) (*Server, error) {
+func NewServer(port int, handler MessageHandler, accessCode string) (*Server, error) {
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve address: %v", err)
@@ -42,8 +43,9 @@ func NewServer(port int, handler MessageHandler) (*Server, error) {
 		Handler:       handler,
 		Running:       false,
 		clients:       make(map[string]*Client),
-		pingInterval:  30 * time.Second, // Ping every 30 seconds
-		clientTimeout: 90 * time.Second, // Remove clients after 90 seconds of inactivity
+		pingInterval:  30 * time.Second,
+		clientTimeout: 90 * time.Second,
+		AccessCode:    accessCode,
 	}, nil
 }
 
@@ -53,9 +55,9 @@ func (s *Server) Start() {
 	}
 
 	s.Running = true
-	fmt.Printf("Chat server started on %v\n", s.Addr)
+	fmt.Printf("Chat server started on: %v\n", s.Addr)
+	fmt.Printf("Access code: %v\n", s.AccessCode)
 
-	// Start the message handling goroutine
 	go func() {
 		for s.Running {
 			buffer := make([]byte, 4096)
@@ -71,7 +73,27 @@ func (s *Server) Start() {
 				continue
 			}
 
-			// Handle different message types
+			// Check passcode validity if message content contains passcode (in this example protocol)
+			if msg.Type == common.TypeAuth {
+
+				fmt.Printf("Auth message received: %s: %s", clientAddr.String(), msg.Content)
+
+				if msg.Content != s.AccessCode {
+					fmt.Printf("Client %s failed passcode validation\n", clientAddr.String())
+					continue
+				}
+
+				// Autorisierten Client registrieren
+				s.clients[clientAddr.String()] = &Client{
+					Addr:         clientAddr,
+					Username:     msg.Username,
+					LastActivity: time.Now(),
+				}
+				fmt.Printf("Client %s successfully authenticated\n", clientAddr.String())
+				continue
+
+			}
+
 			switch msg.Type {
 			case common.TypeAlive:
 				// Update client's last activity time
@@ -79,7 +101,7 @@ func (s *Server) Start() {
 					client.LastActivity = time.Now()
 					client.Username = msg.Username
 				} else {
-					// New client responding to a ping
+					// New client responding to a ping and sent correct password
 					s.clients[clientAddr.String()] = &Client{
 						Addr:         clientAddr,
 						Username:     msg.Username,
@@ -88,35 +110,45 @@ func (s *Server) Start() {
 					fmt.Printf("New client connected: %s (%s)\n", msg.Username, clientAddr.String())
 				}
 			case common.TypeChat:
-				// Handle regular chat message
+				// Check if client is known and authorized
+				client, exists := s.clients[clientAddr.String()]
+				if !exists {
+					fmt.Printf("Unauthorized client %v tried to send chat message\n", clientAddr)
+					continue
+				}
 				if s.Handler != nil {
 					s.Handler(msg, clientAddr)
 				}
 
-				// Update or add client
-				if client, exists := s.clients[clientAddr.String()]; exists {
-					client.LastActivity = time.Now()
-					client.Username = msg.Username
-				} else {
-					s.clients[clientAddr.String()] = &Client{
-						Addr:         clientAddr,
-						Username:     msg.Username,
-						LastActivity: time.Now(),
-					}
-					fmt.Printf("New client connected: %s (%s)\n", msg.Username, clientAddr.String())
-				}
+				// Update client's last activity and username
+				client.LastActivity = time.Now()
+				client.Username = msg.Username
 
-				// Nachricht an alle Clients senden
+				// Broadcast chat message to all authenticated clients
 				if err := s.Broadcast(msg); err != nil {
-					fmt.Printf("Fehler beim Broadcast der Nachricht: %v\n", err)
+					fmt.Printf("Error broadcasting message: %v\n", err)
 				}
-
 			}
 		}
 	}()
 
-	// Start the client ping goroutine
 	go s.pingClients()
+}
+
+func (s *Server) Broadcast(message *common.ChatMessage) error {
+	jsonData, err := message.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to encode message: %v", err)
+	}
+
+	for _, client := range s.clients {
+		_, err = s.Conn.WriteToUDP(jsonData, client.Addr)
+		if err != nil {
+			return fmt.Errorf("failed to send message to %v: %v", client.Addr, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) pingClients() {
@@ -126,7 +158,6 @@ func (s *Server) pingClients() {
 	for s.Running {
 		<-ticker.C
 
-		// Send ping to all clients
 		pingMsg := common.NewPingMessage()
 		jsonData, err := pingMsg.ToJSON()
 		if err != nil {
@@ -134,17 +165,14 @@ func (s *Server) pingClients() {
 			continue
 		}
 
-		// Check for inactive clients and ping active ones
 		now := time.Now()
 		for addr, client := range s.clients {
-			// Remove inactive clients
 			if now.Sub(client.LastActivity) > s.clientTimeout {
 				fmt.Printf("Client timeout: %s (%s)\n", client.Username, addr)
 				delete(s.clients, addr)
 				continue
 			}
 
-			// Ping active clients
 			_, err = s.Conn.WriteToUDP(jsonData, client.Addr)
 			if err != nil {
 				fmt.Printf("Error pinging client %s: %v\n", addr, err)
@@ -160,21 +188,4 @@ func (s *Server) Stop() {
 	if s.Conn != nil {
 		s.Conn.Close()
 	}
-}
-
-func (s *Server) Broadcast(message *common.ChatMessage) error {
-	jsonData, err := message.ToJSON()
-	if err != nil {
-		return fmt.Errorf("failed to encode message: %v", err)
-	}
-
-	// send message to all clients
-	for _, client := range s.clients {
-		_, err = s.Conn.WriteToUDP(jsonData, client.Addr)
-		if err != nil {
-			return fmt.Errorf("failed to send message to %v: %v", client, err)
-		}
-	}
-
-	return nil
 }
