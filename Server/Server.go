@@ -50,10 +50,8 @@ func NewServer(host string, port int, handler MessageHandler, accessCode string)
 }
 
 func (s *Server) parseMessage(buffer []byte, n int) (*common.ChatMessage, error) {
-	// Versuche zuerst verschlüsselte Nachricht
 	msg, err := common.FromEncryptedJSON(buffer[:n], s.AccessCode)
 	if err != nil {
-		// Falls Entschlüsselung fehlschlägt, versuche unverschlüsselt
 		msg, err = common.FromJSON(buffer[:n])
 		if err != nil {
 			return nil, err
@@ -73,12 +71,15 @@ func (s *Server) Start() {
 	go func() {
 		for s.Running {
 			buffer := make([]byte, 4096)
+
+			// Read message
 			n, clientAddr, err := s.Conn.ReadFromUDP(buffer)
 			if err != nil {
 				fmt.Printf("Error reading from UDP: %v\n", err)
 				continue
 			}
 
+			// Parse message
 			msg, err := s.parseMessage(buffer, n)
 			if err != nil {
 				fmt.Printf("Error parsing message from %v: %v\n", clientAddr, err)
@@ -87,65 +88,74 @@ func (s *Server) Start() {
 
 			// Check passcode validity if message content contains passcode (in this example protocol)
 			if msg.Type == common.TypeAuth {
-				/// fmt.Printf("Auth message received: %s: %s\n", clientAddr.String(), msg.Content)
-				if msg.Content != s.AccessCode {
-					// fmt.Printf("Client %s failed passcode validation\n", clientAddr.String())
-					continue
-				}
-
-				// Autorisierten Client registrieren
-				s.clients[clientAddr.String()] = &Client{
-					Addr:         clientAddr,
-					Username:     msg.Username,
-					LastActivity: time.Now(),
-				}
-				fmt.Printf("Client %s successfully authenticated\n", clientAddr.String())
-
-				// Todo: Send AuthSuccess Message to client
-
+				s.RegisterClient(clientAddr, msg)
 				continue
-
 			}
 
 			switch msg.Type {
 			case common.TypeAlive:
-				// Update client's last activity time
-				if client, exists := s.clients[clientAddr.String()]; exists {
-					client.LastActivity = time.Now()
-					client.Username = msg.Username
-				} else {
-					// New client responding to a ping and sent correct password
-					s.clients[clientAddr.String()] = &Client{
-						Addr:         clientAddr,
-						Username:     msg.Username,
-						LastActivity: time.Now(),
-					}
-					fmt.Printf("New client connected: %s (%s)\n", msg.Username, clientAddr.String())
-				}
+				s.TryUpdateClienntActivity(clientAddr, msg)
 			case common.TypeChat:
-				// Check if client is known and authorized
-				client, exists := s.clients[clientAddr.String()]
-				if !exists {
-					// fmt.Printf("Unauthorized client %v tried to send chat message\n", clientAddr)
-					continue
-				}
-				if s.Handler != nil {
-					s.Handler(msg, clientAddr)
-				}
+				s.ReceiveClientChatMessage(clientAddr, msg)
 
-				// Update client's last activity and username
-				client.LastActivity = time.Now()
-				client.Username = msg.Username
-
-				// Broadcast chat message to all authenticated clients
-				if err := s.Broadcast(msg); err != nil {
-					fmt.Printf("Error broadcasting message: %v\n", err)
-				}
 			}
 		}
 	}()
 
 	go s.pingClients()
+}
+
+func (s *Server) RegisterClient(clientAddr *net.UDPAddr, msg *common.ChatMessage) {
+	/// fmt.Printf("Auth message received: %s: %s\n", clientAddr.String(), msg.Content)
+	if msg.Content != s.AccessCode {
+		// fmt.Printf("Client %s failed passcode validation\n", clientAddr.String())
+		return
+	}
+	s.clients[clientAddr.String()] = &Client{
+		Addr:         clientAddr,
+		Username:     msg.Username,
+		LastActivity: time.Now(),
+	}
+	fmt.Printf("Client %s successfully authenticated\n", clientAddr.String())
+}
+
+func (s *Server) ReceiveClientChatMessage(clientAddr *net.UDPAddr, msg *common.ChatMessage) {
+	// Check if client is known and authorized
+	client, exists := s.clients[clientAddr.String()]
+
+	if !exists {
+		return
+	}
+
+	//
+	if s.Handler != nil {
+		s.Handler(msg, clientAddr)
+	}
+
+	// Update client's last activity and username
+	client.LastActivity = time.Now()
+	client.Username = msg.Username
+
+	// Broadcast chat message to all authenticated clients
+	if err := s.Broadcast(msg); err != nil {
+		fmt.Printf("Error broadcasting message: %v\n", err)
+	}
+
+}
+
+func (s *Server) TryUpdateClienntActivity(clientAddr *net.UDPAddr, msg *common.ChatMessage) {
+	if client, exists := s.clients[clientAddr.String()]; exists {
+		client.LastActivity = time.Now()
+		client.Username = msg.Username
+	} else {
+		// New client responding to a ping and sent correct password
+		s.clients[clientAddr.String()] = &Client{
+			Addr:         clientAddr,
+			Username:     msg.Username,
+			LastActivity: time.Now(),
+		}
+		fmt.Printf("New client connected: %s (%s)\n", msg.Username, clientAddr.String())
+	}
 }
 
 func (s *Server) Broadcast(message *common.ChatMessage) error {
