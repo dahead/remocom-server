@@ -49,6 +49,19 @@ func NewServer(host string, port int, handler MessageHandler, accessCode string)
 	}, nil
 }
 
+func (s *Server) parseMessage(buffer []byte, n int) (*common.ChatMessage, error) {
+	// Versuche zuerst verschlüsselte Nachricht
+	msg, err := common.FromEncryptedJSON(buffer[:n], s.AccessCode)
+	if err != nil {
+		// Falls Entschlüsselung fehlschlägt, versuche unverschlüsselt
+		msg, err = common.FromJSON(buffer[:n])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return msg, nil
+}
+
 func (s *Server) Start() {
 	if s.Running {
 		return
@@ -66,7 +79,7 @@ func (s *Server) Start() {
 				continue
 			}
 
-			msg, err := common.FromJSON(buffer[:n])
+			msg, err := s.parseMessage(buffer, n)
 			if err != nil {
 				fmt.Printf("Error parsing message from %v: %v\n", clientAddr, err)
 				continue
@@ -136,9 +149,10 @@ func (s *Server) Start() {
 }
 
 func (s *Server) Broadcast(message *common.ChatMessage) error {
-	jsonData, err := message.ToJSON()
+	// Chat-Nachrichten werden verschlüsselt gesendet
+	jsonData, err := message.ToEncryptedJSON(s.AccessCode)
 	if err != nil {
-		return fmt.Errorf("failed to encode message: %v", err)
+		return fmt.Errorf("failed to encode and encrypt message: %v", err)
 	}
 
 	for _, client := range s.clients {

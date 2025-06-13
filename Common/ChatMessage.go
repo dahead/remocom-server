@@ -2,6 +2,7 @@ package common
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"time"
@@ -67,14 +68,39 @@ func generateUniqueID() string {
 	return time.Now().Format("20060102150405") + hex.EncodeToString(b)
 }
 
-// ToJSON serializes the ChatMessage struct to JSON bytes
 func (m *ChatMessage) ToJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// FromJSON deserializes JSON bytes to a ChatMessage struct
 func FromJSON(data []byte) (*ChatMessage, error) {
 	var msg ChatMessage
 	err := json.Unmarshal(data, &msg)
+	return &msg, err
+}
+
+func GenerateKeyFromAccessCode(accessCode string) []byte {
+	hash := sha256.Sum256([]byte(accessCode))
+	return hash[:]
+}
+
+func (m *ChatMessage) ToEncryptedJSON(accessCode string) ([]byte, error) {
+	jsonData, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+
+	key := GenerateKeyFromAccessCode(accessCode)
+	return Encrypt(key, jsonData)
+}
+
+func FromEncryptedJSON(data []byte, accessCode string) (*ChatMessage, error) {
+	key := GenerateKeyFromAccessCode(accessCode)
+	decryptedData, err := Decrypt(key, data)
+	if err != nil {
+		return nil, err
+	}
+
+	var msg ChatMessage
+	err = json.Unmarshal(decryptedData, &msg)
 	return &msg, err
 }

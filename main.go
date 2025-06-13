@@ -73,19 +73,7 @@ func startClient(host string, port int) {
 	}
 	defer chatClient.Close()
 
-	// Send auth message with access code as Content to authenticate
-	authMsg := common.NewAuthenticateMessage(username, accessCode)
-	authMsg.Content = accessCode
-	authJson, err := authMsg.ToJSON()
-	if err != nil {
-		fmt.Printf("Fehler beim Erstellen der Auth-Nachricht: %v\n", err)
-		return
-	}
-	_, err = chatClient.Conn.Write(authJson)
-	if err != nil {
-		fmt.Printf("Fehler beim Senden der Auth-Nachricht: %v\n", err)
-		return
-	}
+	chatClient.Authenticate(username, accessCode)
 
 	// Start the chat
 	chatClient.Start()
